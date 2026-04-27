@@ -1,0 +1,6 @@
+{
+  "name": "3D Sneaker Configurator",
+  "description": "Interactive HTML in Canvas 3D Sneaker Configurator with Glassmorphism UI using Three.js and Tailwind CSS.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
