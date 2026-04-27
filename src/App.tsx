@@ -6,7 +6,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { Palette, Check, Settings2, Play, CircleDashed, ArrowUpDown, Box, RefreshCcw } from 'lucide-react';
+import { Palette, Check, Settings2, Play, CircleDashed, ArrowUpDown, Box, RefreshCcw, Layers } from 'lucide-react';
 
 const PRESETS = [
   { name: 'Hyper Orange', value: '#ff4e00' },
@@ -22,18 +22,31 @@ const ANIMATIONS = [
   { id: 'none', name: 'Static', icon: Box },
 ];
 
+const MODELS = [
+  { id: 'hightop', name: 'Court High-Top' },
+  { id: 'runner', name: 'Aero Runner' }
+];
+
 export default function App() {
   const mountRef = useRef<HTMLDivElement>(null);
   const materialRef = useRef<THREE.MeshPhysicalMaterial | null>(null);
+  const sneakerGroupRef = useRef<THREE.Group>(new THREE.Group());
   
   const [activeColor, setActiveColor] = useState(PRESETS[0].value);
   const [activeAnimation, setActiveAnimation] = useState<string>('float');
+  const [activeModel, setActiveModel] = useState<string>('hightop');
+  
   const animationRef = useRef<string>('float');
+  const modelRef = useRef<string>('hightop');
 
-  // Sync animation state to ref for the Three.js loop
+  // Sync state to refs for the Three.js loop
   useEffect(() => {
     animationRef.current = activeAnimation;
   }, [activeAnimation]);
+
+  useEffect(() => {
+    modelRef.current = activeModel;
+  }, [activeModel]);
 
   // Initialize Three.js scene
   useEffect(() => {
@@ -92,10 +105,7 @@ export default function App() {
     rimLight.castShadow = false;
     scene.add(rimLight);
 
-    // 6. Constructing the "Conceptual" Sneaker
-    const sneakerGroup = new THREE.Group();
-
-    // Materials
+    // 6. Materials
     const upperMaterial = new THREE.MeshPhysicalMaterial({
       color: activeColor,
       roughness: 0.5,
@@ -115,48 +125,122 @@ export default function App() {
       roughness: 0.5,
     });
 
-    // A. Sole
-    const soleGeom = new THREE.BoxGeometry(4, 0.4, 1.4);
-    const sole = new THREE.Mesh(soleGeom, soleMaterial);
-    sole.position.y = -0.6;
-    sole.castShadow = true;
-    sole.receiveShadow = true;
-    sneakerGroup.add(sole);
-
-    // B. Main Body (Upper)
-    const bodyGeom = new THREE.BoxGeometry(3.6, 1.0, 1.3);
-    const body = new THREE.Mesh(bodyGeom, upperMaterial);
-    body.position.set(-0.2, 0.1, 0);
-    body.castShadow = true;
-    sneakerGroup.add(body);
-
-    // C. Rounded Toe
-    const roundedToeGeom = new THREE.SphereGeometry(0.7, 32, 16);
-    roundedToeGeom.scale(1, 0.6, 0.93);
-    const roundedToe = new THREE.Mesh(roundedToeGeom, upperMaterial);
-    roundedToe.position.set(1.7, 0.01, 0);
-    roundedToe.castShadow = true;
-    sneakerGroup.add(roundedToe);
-
-    // D. Heel/Ankle
-    const ankleGeom = new THREE.CylinderGeometry(0.65, 0.7, 1.6, 32);
-    const ankle = new THREE.Mesh(ankleGeom, upperMaterial);
-    ankle.position.set(-1.4, 0.9, 0);
-    ankle.rotation.z = -0.1; // Lean back slightly
-    ankle.castShadow = true;
-    sneakerGroup.add(ankle);
-
-    // E. Laces detail
-    const lacesGeom = new THREE.BoxGeometry(1.8, 0.2, 0.6);
-    const laces = new THREE.Mesh(lacesGeom, accentMaterial);
-    laces.position.set(0.2, 0.7, 0);
-    laces.rotation.z = 0.2; // Angle down towards toe
-    laces.castShadow = true;
-    sneakerGroup.add(laces);
-
-    // Center and adjust sneaker in the scene
+    const sneakerGroup = sneakerGroupRef.current;
     sneakerGroup.position.y = 0.5;
     scene.add(sneakerGroup);
+
+    let activeMeshes: THREE.Mesh[] = [];
+
+    const buildModel = (type: string) => {
+      // Clear existing
+      activeMeshes.forEach(mesh => {
+        sneakerGroup.remove(mesh);
+        mesh.geometry.dispose();
+      });
+      activeMeshes = [];
+
+      if (type === 'hightop') {
+        // High-Top (Jordan-style)
+        const soleGeom = new THREE.BoxGeometry(4.2, 0.5, 1.6);
+        const sole = new THREE.Mesh(soleGeom, soleMaterial);
+        sole.position.y = -0.65;
+        sole.castShadow = true;
+        sole.receiveShadow = true;
+        activeMeshes.push(sole);
+
+        const bodyGeom = new THREE.BoxGeometry(3.6, 1.2, 1.4);
+        const body = new THREE.Mesh(bodyGeom, upperMaterial);
+        body.position.set(-0.2, 0.2, 0);
+        body.castShadow = true;
+        activeMeshes.push(body);
+
+        const toeGeom = new THREE.SphereGeometry(0.75, 32, 16);
+        toeGeom.scale(1.2, 0.7, 0.95);
+        const toe = new THREE.Mesh(toeGeom, upperMaterial);
+        toe.position.set(1.6, 0.05, 0);
+        toe.castShadow = true;
+        activeMeshes.push(toe);
+
+        const ankleGeom = new THREE.CylinderGeometry(0.7, 0.8, 1.8, 32);
+        const ankle = new THREE.Mesh(ankleGeom, upperMaterial);
+        ankle.position.set(-1.4, 0.9, 0);
+        ankle.rotation.z = -0.05; 
+        ankle.castShadow = true;
+        activeMeshes.push(ankle);
+        
+        const collarGeom = new THREE.TorusGeometry(0.7, 0.15, 16, 32);
+        const collar = new THREE.Mesh(collarGeom, accentMaterial);
+        collar.position.set(-1.4, 1.8, 0);
+        collar.rotation.x = Math.PI / 2;
+        collar.rotation.y = -0.05;
+        collar.castShadow = true;
+        activeMeshes.push(collar);
+
+        const lacesGeom = new THREE.BoxGeometry(1.9, 0.2, 0.7);
+        const laces = new THREE.Mesh(lacesGeom, accentMaterial);
+        laces.position.set(0.3, 0.85, 0);
+        laces.rotation.z = 0.3; 
+        laces.castShadow = true;
+        activeMeshes.push(laces);
+        
+        // Side swoosh/accent
+        const swooshGeom = new THREE.BoxGeometry(2, 0.3, 1.5);
+        const swoosh = new THREE.Mesh(swooshGeom, accentMaterial);
+        swoosh.position.set(-0.5, 0.3, 0);
+        swoosh.rotation.z = 0.2;
+        activeMeshes.push(swoosh);
+
+      } else if (type === 'runner') {
+        // Low-Top Runner (Ultraboost-style)
+        const soleGeom = new THREE.CylinderGeometry(0.8, 0.8, 4.4, 32);
+        soleGeom.scale(0.8, 1, 1);
+        const sole = new THREE.Mesh(soleGeom, soleMaterial);
+        sole.rotation.z = Math.PI / 2;
+        sole.position.y = -0.6;
+        sole.castShadow = true;
+        sole.receiveShadow = true;
+        activeMeshes.push(sole);
+        
+        const heelSoleGeom = new THREE.SphereGeometry(0.9, 32, 16);
+        heelSoleGeom.scale(1, 0.7, 0.95);
+        const heelSole = new THREE.Mesh(heelSoleGeom, soleMaterial);
+        heelSole.position.set(-1.4, -0.5, 0);
+        heelSole.castShadow = true;
+        activeMeshes.push(heelSole);
+
+        const bodyGeom = new THREE.BoxGeometry(3.2, 0.9, 1.25);
+        const body = new THREE.Mesh(bodyGeom, upperMaterial);
+        body.position.set(-0.2, 0.1, 0);
+        body.castShadow = true;
+        activeMeshes.push(body);
+
+        const toeGeom = new THREE.SphereGeometry(0.65, 32, 16);
+        toeGeom.scale(1.4, 0.5, 0.95);
+        const toe = new THREE.Mesh(toeGeom, upperMaterial);
+        toe.position.set(1.5, -0.1, 0);
+        toe.castShadow = true;
+        activeMeshes.push(toe);
+
+        const ankleGeom = new THREE.CylinderGeometry(0.6, 0.65, 1.0, 32);
+        const ankle = new THREE.Mesh(ankleGeom, upperMaterial);
+        ankle.position.set(-1.2, 0.5, 0);
+        ankle.rotation.z = -0.2; 
+        ankle.castShadow = true;
+        activeMeshes.push(ankle);
+
+        const cageGeom = new THREE.BoxGeometry(1.2, 1.0, 1.35);
+        const cage = new THREE.Mesh(cageGeom, accentMaterial);
+        cage.position.set(-0.2, 0.2, 0);
+        activeMeshes.push(cage);
+      }
+
+      activeMeshes.forEach(mesh => sneakerGroup.add(mesh));
+    };
+
+    buildModel('hightop'); // Initial build
+    
+    // Store buildModel so we can call it on state change
+    (mountRef.current as any).buildModel = buildModel;
 
     // 7. Ground / Shadow Catcher
     const groundGeom = new THREE.PlaneGeometry(100, 100);
@@ -165,7 +249,7 @@ export default function App() {
     });
     const ground = new THREE.Mesh(groundGeom, groundMat);
     ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -0.3; // Just below the sole
+    ground.position.y = -0.9; // Just below the sole
     ground.receiveShadow = true;
     scene.add(ground);
 
@@ -196,6 +280,12 @@ export default function App() {
         sneakerGroup.rotation.y = 0;
       }
 
+      // Check for model update
+      if (modelRef.current !== (sneakerGroup.userData.modelType || '')) {
+        buildModel(modelRef.current);
+        sneakerGroup.userData.modelType = modelRef.current;
+      }
+
       // Render scene
       renderer.render(scene, camera);
     };
@@ -216,6 +306,7 @@ export default function App() {
       
       if (mountRef.current) {
         mountRef.current.removeChild(renderer.domElement);
+        delete (mountRef.current as any).buildModel;
       }
       
       // Dispose Three.js objects
@@ -223,30 +314,24 @@ export default function App() {
       upperMaterial.dispose();
       soleMaterial.dispose();
       accentMaterial.dispose();
-      soleGeom.dispose();
-      bodyGeom.dispose();
-      roundedToeGeom.dispose();
-      ankleGeom.dispose();
-      lacesGeom.dispose();
       groundGeom.dispose();
+      activeMeshes.forEach(mesh => mesh.geometry.dispose());
     };
-    // We only want to run this once to setup the scene
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); 
 
   // Watch for color changes from the HTML UI and update the 3D material instantly
   useEffect(() => {
     if (materialRef.current) {
-      // Create a temporary THREE.Color instance to easily lerp or set
       materialRef.current.color.set(activeColor);
     }
   }, [activeColor]);
 
   return (
-    <div className="relative w-full h-screen bg-[#0a0a0a] text-white overflow-hidden flex font-sans select-none">
+    <div className="relative w-full h-screen bg-[#0a0a0a] text-white flex flex-col font-sans select-none sm:overflow-hidden">
       
       {/* Background Atmosphere */}
-      <div className="absolute inset-0 z-0 pointer-events-none">
+      <div className="fixed inset-0 z-0 pointer-events-none">
         <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] bg-orange-600/20 rounded-full blur-[120px]"></div>
         <div className="absolute bottom-[-10%] right-[-5%] w-[500px] h-[500px] bg-blue-600/10 rounded-full blur-[100px]"></div>
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(20,20,20,0),rgba(10,10,10,1))]"></div>
@@ -261,7 +346,7 @@ export default function App() {
       </div>
 
       {/* UI Micro-labels */}
-      <div className="absolute bottom-6 left-6 md:bottom-8 md:left-8 flex flex-col gap-3 z-20 pointer-events-none">
+      <div className="hidden sm:flex absolute bottom-6 left-6 md:bottom-8 md:left-8 flex-col gap-3 z-20 pointer-events-none">
         <div className="flex items-center gap-3">
           <div className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></div>
           <span className="text-[9px] uppercase tracking-[0.2em] opacity-40">Renderer: Three.js WebGL</span>
@@ -283,12 +368,12 @@ export default function App() {
         className="absolute right-0 top-0 h-full w-full sm:w-[380px] bg-white/[0.03] backdrop-blur-[40px] border-l border-white/10 p-6 sm:p-8 flex flex-col z-30 pointer-events-none transition-all"
       >
         <div 
-          className="pointer-events-auto h-full flex flex-col pt-20 sm:pt-4"
+          className="pointer-events-auto h-full flex flex-col pt-24 sm:pt-4"
           onPointerDown={(e) => e.stopPropagation()}
           onWheel={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="mb-10">
+          <div className="mb-8">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2 bg-orange-500/20 text-orange-500 rounded-lg">
                 <Settings2 className="w-4 h-4" />
@@ -296,15 +381,43 @@ export default function App() {
               <span className="text-[10px] uppercase tracking-[0.2em] text-white/40 block">Configuration Mode</span>
             </div>
             <h2 className="text-3xl font-light mb-2">HyperGlide <span className="font-medium">X</span></h2>
-            <p className="text-sm text-white/50 leading-relaxed">Adjust material properties and color mapping for the primary canvas context.</p>
+            <p className="text-sm text-white/50 leading-relaxed">Adjust material properties, model silhouette, and color mapping.</p>
           </div>
 
-          <div className="flex-1 space-y-8 overflow-y-auto pr-2 pb-4">
+          <div className="flex-1 space-y-8 overflow-y-auto pr-2 pb-4 scrollbar-hide">
+            
+            {/* Silhouette Selector */}
+            <div>
+              <label className="text-[10px] uppercase tracking-widest text-white/60 flex items-center gap-2 mb-4">
+                <Layers className="w-3 h-3" /> Silhouette Base
+              </label>
+              
+              <div className="grid grid-cols-2 gap-3">
+                {MODELS.map((model) => {
+                  const isActive = activeModel === model.id;
+                  return (
+                    <button
+                      key={model.id}
+                      onClick={() => setActiveModel(model.id)}
+                      className={`relative flex items-center justify-center p-4 rounded-xl border transition-all duration-300 text-center
+                        ${isActive 
+                          ? 'bg-white/10 border-white/20 text-white shadow-[0_0_15px_rgba(255,255,255,0.05)]' 
+                          : 'bg-white/5 border-white/5 text-white/50 hover:text-white hover:bg-white/[0.08] hover:border-white/10'
+                        }
+                      `}
+                    >
+                      <span className="text-[11px] uppercase tracking-widest font-medium">{model.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Color Presets */}
             <div>
               <div className="flex justify-between items-end mb-4">
                 <label className="text-[10px] uppercase tracking-widest text-white/60 flex items-center gap-2">
-                  <Palette className="w-3 h-3" /> Base Material
+                  <Palette className="w-3 h-3" /> Base Material Color
                 </label>
                 <span className="text-[10px] font-mono opacity-40">{activeColor}</span>
               </div>
@@ -407,3 +520,4 @@ export default function App() {
     </div>
   );
 }
+
