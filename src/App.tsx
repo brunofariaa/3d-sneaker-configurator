@@ -172,6 +172,8 @@ export default function App() {
       }
 
       gltfLoader.load(shoeUrl, (gltf) => {
+        if (modelRef.current !== type) return; // Stale load
+
         const model = gltf.scene;
         
         // Auto-scale and center the model
@@ -193,7 +195,7 @@ export default function App() {
           model.rotation.y = Math.PI / 4;
         } else if (type === 'hightop') {
           model.position.set(-center.x * scaleToFit, - (box.min.y * scaleToFit) - 0.5, -center.z * scaleToFit);
-          model.rotation.y = Math.PI / 4;
+          model.rotation.y = -Math.PI / 2;
         } else if (type === 'runner') {
           // The runner model might be rotated structurally, let's normalize
           model.position.set(-center.x * scaleToFit, - (box.min.y * scaleToFit) - 0.5, -center.z * scaleToFit);
@@ -213,6 +215,11 @@ export default function App() {
 
             const mat = mesh.material as THREE.MeshStandardMaterial;
             if (mat) {
+              // Reset texture maps to allow our solid color to show purely
+              mat.map = null;
+              mat.emissiveMap = null;
+              mat.needsUpdate = true;
+
               const matName = mat.name ? mat.name.toLowerCase() : '';
               const meshName = mesh.name ? mesh.name.toLowerCase() : '';
               const nodeName = mesh.userData.name ? mesh.userData.name.toLowerCase() : '';
@@ -246,7 +253,8 @@ export default function App() {
         
         gltfMaterialsRef.current.upper.forEach(m => {
           if ('color' in m) {
-            (m as THREE.MeshStandardMaterial).color.set(activeColor);
+            // Apply current color from global state (not closure state) via refs
+            (m as THREE.MeshStandardMaterial).color.set(typeof window !== 'undefined' ? (document.getElementById('active-color-ref') as HTMLInputElement)?.value || '#2663F2' : '#2663F2');
             // reset metalness/roughness for procedural look on downloaded assets
             (m as THREE.MeshStandardMaterial).roughness = 0.6;
             (m as THREE.MeshStandardMaterial).metalness = 0.1;
@@ -254,7 +262,7 @@ export default function App() {
         });
         gltfMaterialsRef.current.sole.forEach(m => {
           if ('color' in m) {
-            (m as THREE.MeshStandardMaterial).color.set(activeSoleColor);
+            (m as THREE.MeshStandardMaterial).color.set(typeof window !== 'undefined' ? (document.getElementById('active-sole-color-ref') as HTMLInputElement)?.value || '#FFFFFF' : '#FFFFFF');
             (m as THREE.MeshStandardMaterial).roughness = 0.9;
             (m as THREE.MeshStandardMaterial).metalness = 0.0;
           }
@@ -388,6 +396,8 @@ export default function App() {
 
   return (
     <div className="relative w-full h-screen bg-[#0a0a0a] text-white flex flex-col font-sans select-none sm:overflow-hidden">
+      <input type="hidden" id="active-color-ref" value={activeColor} />
+      <input type="hidden" id="active-sole-color-ref" value={activeSoleColor} />
       
       {/* Background Atmosphere */}
       <div className="fixed inset-0 z-0 pointer-events-none">
