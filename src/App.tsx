@@ -1,18 +1,21 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { Palette, Check, Settings2, Play, CircleDashed, ArrowUpDown, Box, RefreshCcw, Layers } from 'lucide-react';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { Palette, Check, Settings2, Play, CircleDashed, ArrowUpDown, Box, RefreshCcw, Layers, Loader2 } from 'lucide-react';
 
 const PRESETS = [
   { name: 'Hyper Orange', value: '#ff4e00' },
   { name: 'Abyss Blue', value: '#2663f2' },
   { name: 'Volt Green', value: '#84cc16' },
   { name: 'Minimal White', value: '#f8fafc' },
+];
+
+const SOLE_PRESETS = [
+  { name: 'Pure White', value: '#ffffff' },
+  { name: 'Onyx Black', value: '#111111' },
+  { name: 'Classic Gum', value: '#d2a679' },
+  { name: 'Volt Green', value: '#84cc16' },
 ];
 
 const ANIMATIONS = [
@@ -23,21 +26,29 @@ const ANIMATIONS = [
 ];
 
 const MODELS = [
-  { id: 'hightop', name: 'Court High-Top' },
-  { id: 'runner', name: 'Aero Runner' }
+  { id: 'khronos', name: 'Street Skater (GLTF)' },
+  { id: 'hightop', name: 'Court High-Top (Proc)' },
+  { id: 'runner', name: 'Aero Runner (Proc)' }
 ];
 
 export default function App() {
   const mountRef = useRef<HTMLDivElement>(null);
   const materialRef = useRef<THREE.MeshPhysicalMaterial | null>(null);
+  const soleMaterialRef = useRef<THREE.MeshStandardMaterial | null>(null);
   const sneakerGroupRef = useRef<THREE.Group>(new THREE.Group());
   
+  // Refs for external GLTF materials so we can color them
+  const gltfMaterialsRef = useRef<{ upper: THREE.Material[], sole: THREE.Material[] }>({ upper: [], sole: [] });
+  
   const [activeColor, setActiveColor] = useState(PRESETS[0].value);
+  const [activeSoleColor, setActiveSoleColor] = useState(SOLE_PRESETS[0].value);
   const [activeAnimation, setActiveAnimation] = useState<string>('float');
-  const [activeModel, setActiveModel] = useState<string>('hightop');
+  const [activeModel, setActiveModel] = useState<string>('khronos');
+  const [isLoadingModel, setIsLoadingModel] = useState<boolean>(true);
   
   const animationRef = useRef<string>('float');
-  const modelRef = useRef<string>('hightop');
+  const modelRef = useRef<string>('khronos');
+  const isLoadingRef = useRef<boolean>(true);
 
   // Sync state to refs for the Three.js loop
   useEffect(() => {
@@ -47,6 +58,10 @@ export default function App() {
   useEffect(() => {
     modelRef.current = activeModel;
   }, [activeModel]);
+  
+  useEffect(() => {
+    isLoadingRef.current = isLoadingModel;
+  }, [isLoadingModel]);
 
   // Initialize Three.js scene
   useEffect(() => {
@@ -54,7 +69,6 @@ export default function App() {
 
     // 1. Scene Setup
     const scene = new THREE.Scene();
-    // Transparent background to enable atmospheric CSS styling
     scene.fog = new THREE.Fog('#0a0a0a', 15, 40);
 
     // 2. Camera Setup
@@ -64,11 +78,11 @@ export default function App() {
       0.1,
       100
     );
-    camera.position.set(6, 6, 9); // Positioning the camera to look down at the shoe
+    camera.position.set(6, 6, 9); 
 
     // 3. Renderer Setup
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setClearColor(0x000000, 0); // fully transparent
+    renderer.setClearColor(0x000000, 0); 
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
@@ -82,7 +96,7 @@ export default function App() {
     controls.dampingFactor = 0.05;
     controls.minDistance = 4;
     controls.maxDistance = 15;
-    controls.maxPolarAngle = Math.PI / 2 + 0.1; // Don't allow rotating entirely underneath
+    controls.maxPolarAngle = Math.PI / 2 + 0.1; 
 
     // 5. Cinematic Lighting
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
@@ -96,7 +110,7 @@ export default function App() {
     dirLight.shadow.bias = -0.0001;
     scene.add(dirLight);
 
-    const fillLight = new THREE.DirectionalLight(0x90b0d0, 0.5); // Cool fill light
+    const fillLight = new THREE.DirectionalLight(0x90b0d0, 0.5); 
     fillLight.position.set(-5, 3, -5);
     scene.add(fillLight);
 
@@ -116,9 +130,10 @@ export default function App() {
     materialRef.current = upperMaterial;
 
     const soleMaterial = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
+      color: activeSoleColor,
       roughness: 0.8,
     });
+    soleMaterialRef.current = soleMaterial;
 
     const accentMaterial = new THREE.MeshStandardMaterial({
       color: 0x111111,
@@ -129,18 +144,77 @@ export default function App() {
     sneakerGroup.position.y = 0.5;
     scene.add(sneakerGroup);
 
-    let activeMeshes: THREE.Mesh[] = [];
+    let activeMeshes: (THREE.Mesh | THREE.Group)[] = [];
+    const gltfLoader = new GLTFLoader();
 
     const buildModel = (type: string) => {
+      setIsLoadingModel(true);
+      
       // Clear existing
       activeMeshes.forEach(mesh => {
         sneakerGroup.remove(mesh);
-        mesh.geometry.dispose();
+        if ((mesh as THREE.Mesh).geometry) {
+           (mesh as THREE.Mesh).geometry.dispose();
+        }
       });
       activeMeshes = [];
+      gltfMaterialsRef.current = { upper: [], sole: [] };
 
-      if (type === 'hightop') {
-        // High-Top (Jordan-style)
+      if (type === 'khronos') {
+        // Load an external highly-detailed GLTF shoe model from Khronos Sample Models
+        const shoeUrl = 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/MaterialsVariantsShoe/glTF-Binary/MaterialsVariantsShoe.glb';
+        
+        gltfLoader.load(shoeUrl, (gltf) => {
+          const model = gltf.scene;
+          // Scale it up because this GLTF is relatively small
+          model.scale.set(12, 12, 12);
+          model.position.y = -0.5;
+          model.rotation.y = Math.PI / 4; // Display angle
+          
+          model.traverse((child) => {
+            if ((child as THREE.Mesh).isMesh) {
+              const mesh = child as THREE.Mesh;
+              mesh.castShadow = true;
+              mesh.receiveShadow = true;
+              
+              const mat = mesh.material as THREE.MeshStandardMaterial;
+              // Khronos shoe materials usually include: 'shoe', 'sole', 'laces'
+              if (mat && mat.name) {
+                const name = mat.name.toLowerCase();
+                // We identify the sole material by name to allow independent coloring
+                if (name.includes('sole') || name.includes('bottom')) {
+                   gltfMaterialsRef.current.sole.push(mat);
+                } else if (name.includes('shoelace') || name.includes('inner')) {
+                   // Keep laces/inner default or standard dark/light logic
+                   // We'll leave them as is for contrast
+                } else {
+                   gltfMaterialsRef.current.upper.push(mat);
+                }
+              } else if (mat) {
+                 gltfMaterialsRef.current.upper.push(mat);
+              }
+            }
+          });
+          
+          // Apply active colors to the GLTF materials right away
+          gltfMaterialsRef.current.upper.forEach(m => {
+            if ('color' in m) (m as THREE.MeshStandardMaterial).color.set(activeColor);
+          });
+          gltfMaterialsRef.current.sole.forEach(m => {
+            if ('color' in m) (m as THREE.MeshStandardMaterial).color.set(activeSoleColor);
+          });
+
+          sneakerGroup.add(model);
+          activeMeshes.push(model);
+          setIsLoadingModel(false);
+          
+        }, undefined, (error) => {
+          console.error("Error loading GLTF shoe:", error);
+          setIsLoadingModel(false); // fallback silently or handle error visible
+        });
+        
+      } else if (type === 'hightop') {
+        // High-Top (Jordan-style) Procedural fallback
         const soleGeom = new THREE.BoxGeometry(4.2, 0.5, 1.6);
         const sole = new THREE.Mesh(soleGeom, soleMaterial);
         sole.position.y = -0.65;
@@ -190,8 +264,11 @@ export default function App() {
         swoosh.rotation.z = 0.2;
         activeMeshes.push(swoosh);
 
+        activeMeshes.forEach(mesh => sneakerGroup.add(mesh));
+        setIsLoadingModel(false);
+
       } else if (type === 'runner') {
-        // Low-Top Runner (Ultraboost-style)
+        // Low-Top Runner (Ultraboost-style) Procedural fallback
         const soleGeom = new THREE.CylinderGeometry(0.8, 0.8, 4.4, 32);
         soleGeom.scale(0.8, 1, 1);
         const sole = new THREE.Mesh(soleGeom, soleMaterial);
@@ -232,12 +309,13 @@ export default function App() {
         const cage = new THREE.Mesh(cageGeom, accentMaterial);
         cage.position.set(-0.2, 0.2, 0);
         activeMeshes.push(cage);
-      }
 
-      activeMeshes.forEach(mesh => sneakerGroup.add(mesh));
+        activeMeshes.forEach(mesh => sneakerGroup.add(mesh));
+        setIsLoadingModel(false);
+      }
     };
 
-    buildModel('hightop'); // Initial build
+    buildModel('khronos'); // Initial build
     
     // Store buildModel so we can call it on state change
     (mountRef.current as any).buildModel = buildModel;
@@ -268,16 +346,18 @@ export default function App() {
       const animType = animationRef.current;
       if (animType === 'float') {
         sneakerGroup.position.y = 0.5 + Math.sin(time) * 0.1;
-        sneakerGroup.rotation.y = 0;
       } else if (animType === 'spin') {
         sneakerGroup.position.y = 0.5;
         sneakerGroup.rotation.y = time * 0.5;
       } else if (animType === 'bounce') {
         sneakerGroup.position.y = 0.5 + Math.abs(Math.sin(time * 3)) * 0.2;
-        sneakerGroup.rotation.y = 0;
       } else {
         sneakerGroup.position.y = 0.5;
-        sneakerGroup.rotation.y = 0;
+      }
+
+      // Restore Y-rotation if not 'spin' so you can use controls properly
+      if (animType !== 'spin' && sneakerGroup.rotation.y !== 0) {
+        sneakerGroup.rotation.y = 0; 
       }
 
       // Check for model update
@@ -315,17 +395,41 @@ export default function App() {
       soleMaterial.dispose();
       accentMaterial.dispose();
       groundGeom.dispose();
-      activeMeshes.forEach(mesh => mesh.geometry.dispose());
+      activeMeshes.forEach(mesh => {
+         if ((mesh as THREE.Mesh).geometry) {
+            (mesh as THREE.Mesh).geometry.dispose();
+         }
+      });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); 
 
   // Watch for color changes from the HTML UI and update the 3D material instantly
   useEffect(() => {
+    // Procedural references
     if (materialRef.current) {
       materialRef.current.color.set(activeColor);
     }
+    // GLTF references
+    if (gltfMaterialsRef.current.upper.length > 0) {
+      gltfMaterialsRef.current.upper.forEach(m => {
+        if ('color' in m) (m as THREE.MeshStandardMaterial).color.set(activeColor);
+      });
+    }
   }, [activeColor]);
+
+  useEffect(() => {
+    // Procedural references
+    if (soleMaterialRef.current) {
+      soleMaterialRef.current.color.set(activeSoleColor);
+    }
+    // GLTF references
+    if (gltfMaterialsRef.current.sole.length > 0) {
+      gltfMaterialsRef.current.sole.forEach(m => {
+        if ('color' in m) (m as THREE.MeshStandardMaterial).color.set(activeSoleColor);
+      });
+    }
+  }, [activeSoleColor]);
 
   return (
     <div className="relative w-full h-screen bg-[#0a0a0a] text-white flex flex-col font-sans select-none sm:overflow-hidden">
@@ -353,7 +457,7 @@ export default function App() {
         </div>
         <div className="flex items-center gap-3">
           <div className="w-1.5 h-1.5 rounded-full bg-green-500"></div>
-          <span className="text-[9px] uppercase tracking-[0.2em] opacity-40">Model: Conceptual Prototype</span>
+          <span className="text-[9px] uppercase tracking-[0.2em] opacity-40">Model: {activeModel === 'khronos'? 'GLTF Mesh' : 'Procedural Mesh'}</span>
         </div>
       </div>
 
@@ -363,16 +467,25 @@ export default function App() {
         className="absolute inset-0 cursor-move z-10" 
       />
 
+      {/* Loading Overlay */}
+      {isLoadingModel && (
+         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 backdrop-blur-sm transition-opacity">
+            <div className="flex flex-col items-center gap-4 text-orange-500">
+               <Loader2 className="w-12 h-12 animate-spin" />
+               <span className="text-xs uppercase tracking-widest font-medium text-white/80">Fetching 3D Asset...</span>
+            </div>
+         </div>
+      )}
+
       {/* HTML Overlay (Glassmorphism Configurator) */}
       <div 
-        className="absolute right-0 top-0 h-full w-full sm:w-[380px] bg-white/[0.03] backdrop-blur-[40px] border-l border-white/10 p-6 sm:p-8 flex flex-col z-30 pointer-events-none transition-all"
+        className="absolute right-0 top-0 h-full w-full sm:w-[400px] bg-white/[0.03] backdrop-blur-[40px] border-l border-white/10 p-6 sm:p-8 flex flex-col z-30 pointer-events-none transition-all"
       >
         <div 
           className="pointer-events-auto h-full flex flex-col pt-24 sm:pt-4"
           onPointerDown={(e) => e.stopPropagation()}
           onWheel={(e) => e.stopPropagation()}
         >
-          {/* Header */}
           <div className="mb-8">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2 bg-orange-500/20 text-orange-500 rounded-lg">
@@ -392,21 +505,25 @@ export default function App() {
                 <Layers className="w-3 h-3" /> Silhouette Base
               </label>
               
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {MODELS.map((model) => {
                   const isActive = activeModel === model.id;
+                  let colSpan = 'col-span-1';
+                  // Let Khronos span full width if you want, or just let it stack nicely
+                  if (MODELS.length % 2 !== 0 && model.id === 'khronos') colSpan = 'sm:col-span-2';
+
                   return (
                     <button
                       key={model.id}
                       onClick={() => setActiveModel(model.id)}
-                      className={`relative flex items-center justify-center p-4 rounded-xl border transition-all duration-300 text-center
+                      className={`relative flex items-center justify-center p-4 rounded-xl border transition-all duration-300 text-center ${colSpan}
                         ${isActive 
                           ? 'bg-white/10 border-white/20 text-white shadow-[0_0_15px_rgba(255,255,255,0.05)]' 
                           : 'bg-white/5 border-white/5 text-white/50 hover:text-white hover:bg-white/[0.08] hover:border-white/10'
                         }
                       `}
                     >
-                      <span className="text-[11px] uppercase tracking-widest font-medium">{model.name}</span>
+                      <span className={`text-[10px] uppercase tracking-widest ${isActive ? 'font-bold' : 'font-medium'}`}>{model.name}</span>
                     </button>
                   );
                 })}
@@ -422,7 +539,7 @@ export default function App() {
                 <span className="text-[10px] font-mono opacity-40">{activeColor}</span>
               </div>
               
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3 mb-4">
                 {PRESETS.map((preset) => {
                   const isActive = activeColor === preset.value;
                   return (
@@ -441,7 +558,7 @@ export default function App() {
                           className="w-4 h-4 rounded-full shadow-inner border border-black/20"
                           style={{ backgroundColor: preset.value }}
                         />
-                        <span className="text-[11px] uppercase tracking-widest font-medium">{preset.name}</span>
+                        <span className="text-[10px] uppercase tracking-widest font-medium">{preset.name}</span>
                       </div>
                       
                       {isActive && (
@@ -451,13 +568,8 @@ export default function App() {
                   );
                 })}
               </div>
-            </div>
 
-            {/* Custom Color Picker */}
-            <div>
-              <label className="text-[10px] uppercase tracking-widest text-white/60 block mb-3">
-                Custom Shade
-              </label>
+              {/* Custom Color Picker */}
               <label className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10 cursor-pointer hover:bg-white/[0.08] transition-colors">
                 <div className="flex items-center gap-4">
                   <div className="relative w-8 h-8 rounded-full overflow-hidden shrink-0 shadow-inner border border-white/20">
@@ -468,9 +580,65 @@ export default function App() {
                       className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[150%] h-[150%] cursor-pointer bg-transparent border-0 p-0 outline-none"
                     />
                   </div>
-                  <span className="text-xs uppercase tracking-widest text-white/80">Hex Value</span>
+                  <span className="text-xs uppercase tracking-widest text-white/80">Custom Base</span>
                 </div>
                 <span className="text-[11px] font-mono opacity-50">{activeColor.toUpperCase()}</span>
+              </label>
+            </div>
+
+            {/* Sole Color Presets */}
+            <div>
+              <div className="flex justify-between items-end mb-4">
+                <label className="text-[10px] uppercase tracking-widest text-white/60 flex items-center gap-2">
+                  <Palette className="w-3 h-3" /> Sole Material Color
+                </label>
+                <span className="text-[10px] font-mono opacity-40">{activeSoleColor}</span>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                {SOLE_PRESETS.map((preset) => {
+                  const isActive = activeSoleColor === preset.value;
+                  return (
+                    <button
+                      key={preset.name}
+                      onClick={() => setActiveSoleColor(preset.value)}
+                      className={`relative flex items-center justify-between p-3 rounded-xl border transition-all duration-300 text-left
+                        ${isActive 
+                          ? 'bg-white/10 border-white/20 text-white shadow-[0_0_15px_rgba(255,255,255,0.05)]' 
+                          : 'bg-white/5 border-white/5 text-white/50 hover:text-white hover:bg-white/[0.08] hover:border-white/10'
+                        }
+                      `}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div 
+                          className="w-4 h-4 rounded-full shadow-inner border border-black/20"
+                          style={{ backgroundColor: preset.value }}
+                        />
+                        <span className="text-[10px] uppercase tracking-widest font-medium">{preset.name}</span>
+                      </div>
+                      
+                      {isActive && (
+                        <Check className="w-3 h-3 text-orange-500 shrink-0" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Sole Custom Color Picker */}
+              <label className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10 cursor-pointer hover:bg-white/[0.08] transition-colors">
+                <div className="flex items-center gap-4">
+                  <div className="relative w-8 h-8 rounded-full overflow-hidden shrink-0 shadow-inner border border-white/20">
+                    <input
+                      type="color"
+                      value={activeSoleColor}
+                      onChange={(e) => setActiveSoleColor(e.target.value)}
+                      className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[150%] h-[150%] cursor-pointer bg-transparent border-0 p-0 outline-none"
+                    />
+                  </div>
+                  <span className="text-xs uppercase tracking-widest text-white/80">Custom Sole</span>
+                </div>
+                <span className="text-[11px] font-mono opacity-50">{activeSoleColor.toUpperCase()}</span>
               </label>
             </div>
 
@@ -496,7 +664,7 @@ export default function App() {
                       `}
                     >
                       <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-orange-500' : 'opacity-70'}`} />
-                      <span className="text-[11px] uppercase tracking-widest font-medium">{anim.name}</span>
+                      <span className="text-[10px] uppercase tracking-widest font-medium">{anim.name}</span>
                     </button>
                   );
                 })}
@@ -520,4 +688,3 @@ export default function App() {
     </div>
   );
 }
-
