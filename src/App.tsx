@@ -162,27 +162,43 @@ export default function App() {
       activeMeshes = [];
       gltfMaterialsRef.current = { upper: [], sole: [] };
 
-      const shoeUrl = 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/MaterialsVariantsShoe/glTF-Binary/MaterialsVariantsShoe.glb';
-      
+      let shoeUrl = '';
+      if (type === 'khronos') {
+        shoeUrl = 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/MaterialsVariantsShoe/glTF-Binary/MaterialsVariantsShoe.glb';
+      } else if (type === 'hightop') {
+        shoeUrl = 'https://raw.githubusercontent.com/vipcodestudio/3d-shoes-configurator/main/public/model/nike_air_jordan.glb';
+      } else if (type === 'runner') {
+        shoeUrl = 'https://raw.githubusercontent.com/qHomeee/DjangoProject/main/static/sneakers/models/adidas_silver_runner/79PIO0PIR42TTW6LL0LPQM1WT.glb';
+      }
+
       gltfLoader.load(shoeUrl, (gltf) => {
         const model = gltf.scene;
         
-        // Apply different transforms based on the "silhouette"
-        if (type === 'hightop') {
-          // Stretch vertically for High-Top look
-          model.scale.set(11.5, 14, 11.5);
-          model.position.y = -0.6;
-        } else if (type === 'runner') {
-          // Stretch horizontally and flatten for a running shoe outline
-          model.scale.set(13.5, 9.5, 12);
-          model.position.y = -0.4;
-        } else {
-          // Default Khronos scale
-          model.scale.set(12, 12, 12);
-          model.position.y = -0.5;
-        }
+        // Auto-scale and center the model
+        const box = new THREE.Box3().setFromObject(model);
+        const size = new THREE.Vector3();
+        box.getSize(size);
         
-        model.rotation.y = Math.PI / 4; // Display angle
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const targetSize = 3.2; // Desired visual length size
+        const scaleToFit = targetSize / maxDim;
+        model.scale.set(scaleToFit, scaleToFit, scaleToFit);
+        
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        
+        // Adjust for different models' default orientations
+        if (type === 'khronos') {
+          model.position.set(-center.x * scaleToFit, - (box.min.y * scaleToFit) - 0.5, -center.z * scaleToFit);
+          model.rotation.y = Math.PI / 4;
+        } else if (type === 'hightop') {
+          model.position.set(-center.x * scaleToFit, - (box.min.y * scaleToFit) - 0.5, -center.z * scaleToFit);
+          model.rotation.y = Math.PI / 4;
+        } else if (type === 'runner') {
+          // The runner model might be rotated structurally, let's normalize
+          model.position.set(-center.x * scaleToFit, - (box.min.y * scaleToFit) - 0.5, -center.z * scaleToFit);
+          model.rotation.y = Math.PI / 4;
+        }
         
         model.traverse((child) => {
           if ((child as THREE.Mesh).isMesh) {
@@ -190,27 +206,58 @@ export default function App() {
             mesh.castShadow = true;
             mesh.receiveShadow = true;
             
+            // Clone material so different meshes don't share the same reference if they shouldn't
+            if (mesh.material) {
+              mesh.material = (mesh.material as THREE.Material).clone();
+            }
+
             const mat = mesh.material as THREE.MeshStandardMaterial;
-            if (mat && mat.name) {
-              const name = mat.name.toLowerCase();
-              if (name.includes('sole') || name.includes('bottom')) {
-                 gltfMaterialsRef.current.sole.push(mat);
-              } else if (name.includes('shoelace') || name.includes('inner')) {
-                 // Keep default materials for contrast on laces/inner
+            if (mat) {
+              const matName = mat.name ? mat.name.toLowerCase() : '';
+              const meshName = mesh.name ? mesh.name.toLowerCase() : '';
+              const nodeName = mesh.userData.name ? mesh.userData.name.toLowerCase() : '';
+              const combinedName = matName + meshName + nodeName;
+              
+              const isSole = combinedName.includes('sole') || combinedName.includes('bottom') || combinedName.includes('001') || combinedName.includes('midsole') || combinedName.includes('outsole') || combinedName.includes('nike'); 
+              const isLaceOrInner = combinedName.includes('lace') || combinedName.includes('inner') || combinedName.includes('tongue');
+              
+              if (type === 'runner') {
+                if (mesh.id % 2 === 0) { // Fallback heuristics for runner if combinedNames are unhelpful
+                   gltfMaterialsRef.current.sole.push(mat);
+                } else {
+                   gltfMaterialsRef.current.upper.push(mat);
+                }
+              } else if (type === 'hightop') {
+                if (combinedName.includes('010') || combinedName.includes('002') || combinedName.includes('sole')) {
+                   gltfMaterialsRef.current.sole.push(mat);
+                } else if (!combinedName.includes('006') && !combinedName.includes('007')) {
+                   gltfMaterialsRef.current.upper.push(mat);
+                }
               } else {
-                 gltfMaterialsRef.current.upper.push(mat);
+                if (isSole) {
+                   gltfMaterialsRef.current.sole.push(mat);
+                } else if (!isLaceOrInner) {
+                   gltfMaterialsRef.current.upper.push(mat);
+                }
               }
-            } else if (mat) {
-               gltfMaterialsRef.current.upper.push(mat);
             }
           }
         });
         
         gltfMaterialsRef.current.upper.forEach(m => {
-          if ('color' in m) (m as THREE.MeshStandardMaterial).color.set(activeColor);
+          if ('color' in m) {
+            (m as THREE.MeshStandardMaterial).color.set(activeColor);
+            // reset metalness/roughness for procedural look on downloaded assets
+            (m as THREE.MeshStandardMaterial).roughness = 0.6;
+            (m as THREE.MeshStandardMaterial).metalness = 0.1;
+          }
         });
         gltfMaterialsRef.current.sole.forEach(m => {
-          if ('color' in m) (m as THREE.MeshStandardMaterial).color.set(activeSoleColor);
+          if ('color' in m) {
+            (m as THREE.MeshStandardMaterial).color.set(activeSoleColor);
+            (m as THREE.MeshStandardMaterial).roughness = 0.9;
+            (m as THREE.MeshStandardMaterial).metalness = 0.0;
+          }
         });
 
         sneakerGroup.add(model);
