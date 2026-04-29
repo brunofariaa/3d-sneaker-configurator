@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { Palette, Check, Settings2, Play, CircleDashed, ArrowUpDown, Box, RefreshCcw, Layers, Loader2 } from 'lucide-react';
 
 const PRESETS = [
@@ -26,9 +27,9 @@ const ANIMATIONS = [
 ];
 
 const MODELS = [
-  { id: 'khronos', name: 'Street Skater (GLTF)' },
-  { id: 'hightop', name: 'Court High-Top (Proc)' },
-  { id: 'runner', name: 'Aero Runner (Proc)' }
+  { id: 'khronos', name: 'Street Skater' },
+  { id: 'hightop', name: 'Court High-Top' },
+  { id: 'runner', name: 'Aero Runner' }
 ];
 
 export default function App() {
@@ -136,8 +137,9 @@ export default function App() {
     soleMaterialRef.current = soleMaterial;
 
     const accentMaterial = new THREE.MeshStandardMaterial({
-      color: 0x111111,
-      roughness: 0.5,
+      color: 0x18181b,
+      roughness: 0.3,
+      metalness: 0.4
     });
 
     const sneakerGroup = sneakerGroupRef.current;
@@ -160,159 +162,65 @@ export default function App() {
       activeMeshes = [];
       gltfMaterialsRef.current = { upper: [], sole: [] };
 
-      if (type === 'khronos') {
-        // Load an external highly-detailed GLTF shoe model from Khronos Sample Models
-        const shoeUrl = 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/MaterialsVariantsShoe/glTF-Binary/MaterialsVariantsShoe.glb';
+      const shoeUrl = 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/MaterialsVariantsShoe/glTF-Binary/MaterialsVariantsShoe.glb';
+      
+      gltfLoader.load(shoeUrl, (gltf) => {
+        const model = gltf.scene;
         
-        gltfLoader.load(shoeUrl, (gltf) => {
-          const model = gltf.scene;
-          // Scale it up because this GLTF is relatively small
+        // Apply different transforms based on the "silhouette"
+        if (type === 'hightop') {
+          // Stretch vertically for High-Top look
+          model.scale.set(11.5, 14, 11.5);
+          model.position.y = -0.6;
+        } else if (type === 'runner') {
+          // Stretch horizontally and flatten for a running shoe outline
+          model.scale.set(13.5, 9.5, 12);
+          model.position.y = -0.4;
+        } else {
+          // Default Khronos scale
           model.scale.set(12, 12, 12);
           model.position.y = -0.5;
-          model.rotation.y = Math.PI / 4; // Display angle
-          
-          model.traverse((child) => {
-            if ((child as THREE.Mesh).isMesh) {
-              const mesh = child as THREE.Mesh;
-              mesh.castShadow = true;
-              mesh.receiveShadow = true;
-              
-              const mat = mesh.material as THREE.MeshStandardMaterial;
-              // Khronos shoe materials usually include: 'shoe', 'sole', 'laces'
-              if (mat && mat.name) {
-                const name = mat.name.toLowerCase();
-                // We identify the sole material by name to allow independent coloring
-                if (name.includes('sole') || name.includes('bottom')) {
-                   gltfMaterialsRef.current.sole.push(mat);
-                } else if (name.includes('shoelace') || name.includes('inner')) {
-                   // Keep laces/inner default or standard dark/light logic
-                   // We'll leave them as is for contrast
-                } else {
-                   gltfMaterialsRef.current.upper.push(mat);
-                }
-              } else if (mat) {
+        }
+        
+        model.rotation.y = Math.PI / 4; // Display angle
+        
+        model.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) {
+            const mesh = child as THREE.Mesh;
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            
+            const mat = mesh.material as THREE.MeshStandardMaterial;
+            if (mat && mat.name) {
+              const name = mat.name.toLowerCase();
+              if (name.includes('sole') || name.includes('bottom')) {
+                 gltfMaterialsRef.current.sole.push(mat);
+              } else if (name.includes('shoelace') || name.includes('inner')) {
+                 // Keep default materials for contrast on laces/inner
+              } else {
                  gltfMaterialsRef.current.upper.push(mat);
               }
+            } else if (mat) {
+               gltfMaterialsRef.current.upper.push(mat);
             }
-          });
-          
-          // Apply active colors to the GLTF materials right away
-          gltfMaterialsRef.current.upper.forEach(m => {
-            if ('color' in m) (m as THREE.MeshStandardMaterial).color.set(activeColor);
-          });
-          gltfMaterialsRef.current.sole.forEach(m => {
-            if ('color' in m) (m as THREE.MeshStandardMaterial).color.set(activeSoleColor);
-          });
-
-          sneakerGroup.add(model);
-          activeMeshes.push(model);
-          setIsLoadingModel(false);
-          
-        }, undefined, (error) => {
-          console.error("Error loading GLTF shoe:", error);
-          setIsLoadingModel(false); // fallback silently or handle error visible
+          }
         });
         
-      } else if (type === 'hightop') {
-        // High-Top (Jordan-style) Procedural fallback
-        const soleGeom = new THREE.BoxGeometry(4.2, 0.5, 1.6);
-        const sole = new THREE.Mesh(soleGeom, soleMaterial);
-        sole.position.y = -0.65;
-        sole.castShadow = true;
-        sole.receiveShadow = true;
-        activeMeshes.push(sole);
+        gltfMaterialsRef.current.upper.forEach(m => {
+          if ('color' in m) (m as THREE.MeshStandardMaterial).color.set(activeColor);
+        });
+        gltfMaterialsRef.current.sole.forEach(m => {
+          if ('color' in m) (m as THREE.MeshStandardMaterial).color.set(activeSoleColor);
+        });
 
-        const bodyGeom = new THREE.BoxGeometry(3.6, 1.2, 1.4);
-        const body = new THREE.Mesh(bodyGeom, upperMaterial);
-        body.position.set(-0.2, 0.2, 0);
-        body.castShadow = true;
-        activeMeshes.push(body);
-
-        const toeGeom = new THREE.SphereGeometry(0.75, 32, 16);
-        toeGeom.scale(1.2, 0.7, 0.95);
-        const toe = new THREE.Mesh(toeGeom, upperMaterial);
-        toe.position.set(1.6, 0.05, 0);
-        toe.castShadow = true;
-        activeMeshes.push(toe);
-
-        const ankleGeom = new THREE.CylinderGeometry(0.7, 0.8, 1.8, 32);
-        const ankle = new THREE.Mesh(ankleGeom, upperMaterial);
-        ankle.position.set(-1.4, 0.9, 0);
-        ankle.rotation.z = -0.05; 
-        ankle.castShadow = true;
-        activeMeshes.push(ankle);
-        
-        const collarGeom = new THREE.TorusGeometry(0.7, 0.15, 16, 32);
-        const collar = new THREE.Mesh(collarGeom, accentMaterial);
-        collar.position.set(-1.4, 1.8, 0);
-        collar.rotation.x = Math.PI / 2;
-        collar.rotation.y = -0.05;
-        collar.castShadow = true;
-        activeMeshes.push(collar);
-
-        const lacesGeom = new THREE.BoxGeometry(1.9, 0.2, 0.7);
-        const laces = new THREE.Mesh(lacesGeom, accentMaterial);
-        laces.position.set(0.3, 0.85, 0);
-        laces.rotation.z = 0.3; 
-        laces.castShadow = true;
-        activeMeshes.push(laces);
-        
-        // Side swoosh/accent
-        const swooshGeom = new THREE.BoxGeometry(2, 0.3, 1.5);
-        const swoosh = new THREE.Mesh(swooshGeom, accentMaterial);
-        swoosh.position.set(-0.5, 0.3, 0);
-        swoosh.rotation.z = 0.2;
-        activeMeshes.push(swoosh);
-
-        activeMeshes.forEach(mesh => sneakerGroup.add(mesh));
+        sneakerGroup.add(model);
+        activeMeshes.push(model);
         setIsLoadingModel(false);
-
-      } else if (type === 'runner') {
-        // Low-Top Runner (Ultraboost-style) Procedural fallback
-        const soleGeom = new THREE.CylinderGeometry(0.8, 0.8, 4.4, 32);
-        soleGeom.scale(0.8, 1, 1);
-        const sole = new THREE.Mesh(soleGeom, soleMaterial);
-        sole.rotation.z = Math.PI / 2;
-        sole.position.y = -0.6;
-        sole.castShadow = true;
-        sole.receiveShadow = true;
-        activeMeshes.push(sole);
         
-        const heelSoleGeom = new THREE.SphereGeometry(0.9, 32, 16);
-        heelSoleGeom.scale(1, 0.7, 0.95);
-        const heelSole = new THREE.Mesh(heelSoleGeom, soleMaterial);
-        heelSole.position.set(-1.4, -0.5, 0);
-        heelSole.castShadow = true;
-        activeMeshes.push(heelSole);
-
-        const bodyGeom = new THREE.BoxGeometry(3.2, 0.9, 1.25);
-        const body = new THREE.Mesh(bodyGeom, upperMaterial);
-        body.position.set(-0.2, 0.1, 0);
-        body.castShadow = true;
-        activeMeshes.push(body);
-
-        const toeGeom = new THREE.SphereGeometry(0.65, 32, 16);
-        toeGeom.scale(1.4, 0.5, 0.95);
-        const toe = new THREE.Mesh(toeGeom, upperMaterial);
-        toe.position.set(1.5, -0.1, 0);
-        toe.castShadow = true;
-        activeMeshes.push(toe);
-
-        const ankleGeom = new THREE.CylinderGeometry(0.6, 0.65, 1.0, 32);
-        const ankle = new THREE.Mesh(ankleGeom, upperMaterial);
-        ankle.position.set(-1.2, 0.5, 0);
-        ankle.rotation.z = -0.2; 
-        ankle.castShadow = true;
-        activeMeshes.push(ankle);
-
-        const cageGeom = new THREE.BoxGeometry(1.2, 1.0, 1.35);
-        const cage = new THREE.Mesh(cageGeom, accentMaterial);
-        cage.position.set(-0.2, 0.2, 0);
-        activeMeshes.push(cage);
-
-        activeMeshes.forEach(mesh => sneakerGroup.add(mesh));
-        setIsLoadingModel(false);
-      }
+      }, undefined, (error) => {
+        console.error("Error loading GLTF shoe:", error);
+        setIsLoadingModel(false); 
+      });
     };
 
     buildModel('khronos'); // Initial build
@@ -457,7 +365,7 @@ export default function App() {
         </div>
         <div className="flex items-center gap-3">
           <div className="w-1.5 h-1.5 rounded-full bg-green-500"></div>
-          <span className="text-[9px] uppercase tracking-[0.2em] opacity-40">Model: {activeModel === 'khronos'? 'GLTF Mesh' : 'Procedural Mesh'}</span>
+          <span className="text-[9px] uppercase tracking-[0.2em] opacity-40">Model: GLTF Mesh</span>
         </div>
       </div>
 
