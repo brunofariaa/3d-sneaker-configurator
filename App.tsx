@@ -2,8 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { Palette, Check, Settings2, Play, CircleDashed, ArrowUpDown, Box, RefreshCcw, Layers, Loader2 } from 'lucide-react';
+import { Palette, Check, Settings2, Play, CircleDashed, ArrowUpDown, Box, RefreshCcw, Layers, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const PRESETS = [
   { name: 'Hyper Orange', value: '#ff4e00' },
@@ -23,13 +22,22 @@ const ANIMATIONS = [
   { id: 'float', name: 'Floating', icon: ArrowUpDown },
   { id: 'spin', name: 'Slow Spin', icon: RefreshCcw },
   { id: 'bounce', name: 'Gentle Bounce', icon: CircleDashed },
-  { id: 'none', name: 'Static', icon: Box },
 ];
 
 const MODELS = [
   { id: 'khronos', name: 'Street Skater' },
   { id: 'hightop', name: 'Court High-Top' },
   { id: 'runner', name: 'Aero Runner' }
+];
+
+const FEATURES = [
+  { id: 'model', title: 'Shoe Model' },
+  { id: 'baseColor', title: 'Base Material' },
+  { id: 'soleColor', title: 'Sole Material' },
+  { id: 'laceColor', title: 'Laces Color' },
+  { id: 'innerColor', title: 'Inner/Tongue Color' },
+  { id: 'accentColor', title: 'Accents & Details' },
+  { id: 'animation', title: 'Presentation Mode' }
 ];
 
 export default function App() {
@@ -39,13 +47,23 @@ export default function App() {
   const sneakerGroupRef = useRef<THREE.Group>(new THREE.Group());
   
   // Refs for external GLTF materials so we can color them
-  const gltfMaterialsRef = useRef<{ upper: THREE.Material[], sole: THREE.Material[] }>({ upper: [], sole: [] });
+  const gltfMaterialsRef = useRef<{ 
+    upper: THREE.Material[], 
+    sole: THREE.Material[],
+    lace: THREE.Material[],
+    inner: THREE.Material[],
+    accent: THREE.Material[]
+  }>({ upper: [], sole: [], lace: [], inner: [], accent: [] });
   
   const [activeColor, setActiveColor] = useState(PRESETS[0].value);
   const [activeSoleColor, setActiveSoleColor] = useState(SOLE_PRESETS[0].value);
+  const [activeLaceColor, setActiveLaceColor] = useState('#111111');
+  const [activeInnerColor, setActiveInnerColor] = useState('#222222');
+  const [activeAccentColor, setActiveAccentColor] = useState('#ff0000');
   const [activeAnimation, setActiveAnimation] = useState<string>('float');
   const [activeModel, setActiveModel] = useState<string>('khronos');
   const [isLoadingModel, setIsLoadingModel] = useState<boolean>(true);
+  const [activeFeatureIndex, setActiveFeatureIndex] = useState(0);
   
   const animationRef = useRef<string>('float');
   const modelRef = useRef<string>('khronos');
@@ -160,11 +178,11 @@ export default function App() {
         }
       });
       activeMeshes = [];
-      gltfMaterialsRef.current = { upper: [], sole: [] };
+      gltfMaterialsRef.current = { upper: [], sole: [], lace: [], inner: [], accent: [] };
 
       let shoeUrl = '';
       if (type === 'khronos') {
-        shoeUrl = 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/MaterialsVariantsShoe/glTF-Binary/MaterialsVariantsShoe.glb';
+        shoeUrl = 'https://raw.githubusercontent.com/hardikverma22/shoe-forge/master/public/shoe.gltf';
       } else if (type === 'hightop') {
         shoeUrl = 'https://raw.githubusercontent.com/vipcodestudio/3d-shoes-configurator/main/public/model/nike_air_jordan.glb';
       } else if (type === 'runner') {
@@ -210,43 +228,81 @@ export default function App() {
             
             // Clone material so different meshes don't share the same reference if they shouldn't
             if (mesh.material) {
-              mesh.material = (mesh.material as THREE.Material).clone();
+              if (Array.isArray(mesh.material)) {
+                mesh.material = mesh.material.map(m => m.clone());
+              } else {
+                mesh.material = (mesh.material as THREE.Material).clone();
+              }
             }
 
-            const mat = mesh.material as THREE.MeshStandardMaterial;
-            if (mat) {
-              // Reset texture maps to allow our solid color to show purely
-              mat.map = null;
-              mat.emissiveMap = null;
-              mat.needsUpdate = true;
+            const processMaterial = (mat: THREE.MeshStandardMaterial) => {
+              if (mat) {
+                // Reset texture maps to allow our solid color to show purely
+                mat.map = null;
+                mat.emissiveMap = null;
+                mat.needsUpdate = true;
 
-              const matName = mat.name ? mat.name.toLowerCase() : '';
-              const meshName = mesh.name ? mesh.name.toLowerCase() : '';
-              const nodeName = mesh.userData.name ? mesh.userData.name.toLowerCase() : '';
-              const combinedName = matName + meshName + nodeName;
-              
-              const isSole = combinedName.includes('sole') || combinedName.includes('bottom') || combinedName.includes('001') || combinedName.includes('midsole') || combinedName.includes('outsole') || combinedName.includes('nike'); 
-              const isLaceOrInner = combinedName.includes('lace') || combinedName.includes('inner') || combinedName.includes('tongue');
-              
-              if (type === 'runner') {
-                if (mesh.id % 2 === 0) { // Fallback heuristics for runner if combinedNames are unhelpful
-                   gltfMaterialsRef.current.sole.push(mat);
+                const matName = mat.name ? mat.name.toLowerCase() : '';
+                const meshName = mesh.name ? mesh.name.toLowerCase() : '';
+                const nodeName = mesh.userData.name ? mesh.userData.name.toLowerCase() : '';
+                const combinedName = matName + meshName + nodeName;
+                
+                const isSole = combinedName.includes('sole') || combinedName.includes('bottom') || combinedName.includes('001') || combinedName.includes('midsole') || combinedName.includes('outsole') || combinedName.includes('nike'); 
+                const isLaceOrInner = combinedName.includes('lace') || combinedName.includes('inner') || combinedName.includes('tongue');
+                const isLace = combinedName.includes('lace') || combinedName.includes('shoelace');
+                const isInner = combinedName.includes('inner') || combinedName.includes('tongue') || combinedName.includes('lining') || combinedName.includes('inside');
+                const isAccent = combinedName.includes('caps') || combinedName.includes('stripes') || combinedName.includes('band') || combinedName.includes('patch') || combinedName.includes('logo') || combinedName.includes('nike') || combinedName.includes('detail');
+
+                const assignTo = (part: 'sole' | 'lace' | 'inner' | 'accent' | 'upper') => {
+                  gltfMaterialsRef.current[part].push(mat);
+                  mesh.userData.partId = part;
+                };
+
+                if (type === 'khronos') {
+                   // using shoe.gltf names
+                   if (matName === 'laces') assignTo('lace');
+                   else if (matName === 'inner') assignTo('inner');
+                   else if (matName === 'sole') assignTo('sole');
+                   else if (matName === 'caps' || matName === 'stripes' || matName === 'band' || matName === 'patch') assignTo('accent');
+                   else assignTo('upper');
+                } else if (type === 'runner') {
+                  if (mesh.id % 2 === 0 && (isSole || matName.includes('sole'))) { 
+                     assignTo('sole');
+                  } else if (isLace || mesh.id % 5 === 0) {
+                     assignTo('lace');
+                  } else if (isInner || mesh.id % 4 === 0) {
+                     assignTo('inner');
+                  } else if (isAccent || mesh.id % 3 === 0) {
+                     assignTo('accent');
+                  } else {
+                     assignTo('upper');
+                  }
+                } else if (type === 'hightop') {
+                  if (combinedName.includes('010') || combinedName.includes('002') || combinedName.includes('sole')) {
+                     assignTo('sole');
+                  } else if (isLace || combinedName.includes('006') || combinedName.includes('007')) {
+                     assignTo('lace');
+                  } else if (isAccent) {
+                     assignTo('accent');
+                  } else if (isInner) {
+                     assignTo('inner');
+                  } else {
+                     assignTo('upper');
+                  }
                 } else {
-                   gltfMaterialsRef.current.upper.push(mat);
-                }
-              } else if (type === 'hightop') {
-                if (combinedName.includes('010') || combinedName.includes('002') || combinedName.includes('sole')) {
-                   gltfMaterialsRef.current.sole.push(mat);
-                } else if (!combinedName.includes('006') && !combinedName.includes('007')) {
-                   gltfMaterialsRef.current.upper.push(mat);
-                }
-              } else {
-                if (isSole) {
-                   gltfMaterialsRef.current.sole.push(mat);
-                } else if (!isLaceOrInner) {
-                   gltfMaterialsRef.current.upper.push(mat);
+                  if (isSole) assignTo('sole');
+                  else if (isLace) assignTo('lace');
+                  else if (isInner) assignTo('inner');
+                  else if (isAccent) assignTo('accent');
+                  else assignTo('upper');
                 }
               }
+            };
+
+            if (Array.isArray(mesh.material)) {
+              mesh.material.forEach(m => processMaterial(m as THREE.MeshStandardMaterial));
+            } else {
+              processMaterial(mesh.material as THREE.MeshStandardMaterial);
             }
           }
         });
@@ -293,6 +349,53 @@ export default function App() {
     ground.position.y = -0.9; // Just below the sole
     ground.receiveShadow = true;
     scene.add(ground);
+
+    // Raycaster for clicking elements
+    let pointerDownPos = { x: 0, y: 0 };
+    const onPointerDown = (e: PointerEvent) => {
+      pointerDownPos = { x: e.clientX, y: e.clientY };
+    };
+
+    const onClick = (event: MouseEvent) => {
+      const dist = Math.hypot(event.clientX - pointerDownPos.x, event.clientY - pointerDownPos.y);
+      if (dist > 5) return; // it was a drag
+
+      if ((event.target as HTMLElement).closest('.configurator-ui')) return;
+
+      const mouse = new THREE.Vector2();
+      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+      const raycaster = new THREE.Raycaster();
+      raycaster.setFromCamera(mouse, camera);
+
+      const intersects = raycaster.intersectObject(sneakerGroup, true);
+      if (intersects.length > 0) {
+        const object = intersects[0].object as THREE.Mesh;
+        const partId = object.userData.partId;
+        
+        if (partId) {
+          const mapping: Record<string, string> = {
+            'upper': 'baseColor',
+            'sole': 'soleColor',
+            'lace': 'laceColor',
+            'inner': 'innerColor',
+            'accent': 'accentColor'
+          };
+          const featureId = mapping[partId];
+          if (featureId) {
+            const el = document.getElementById('feature-index-changer');
+            if (el) {
+               el.setAttribute('data-target-id', featureId);
+               el.click();
+            }
+          }
+        }
+      }
+    };
+
+    window.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('click', onClick);
 
     // 8. Animation Loop
     let animationFrameId: number;
@@ -345,6 +448,8 @@ export default function App() {
     // Cleanup
     return () => {
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('click', onClick);
       cancelAnimationFrame(animationFrameId);
       
       if (mountRef.current) {
@@ -394,10 +499,92 @@ export default function App() {
     }
   }, [activeSoleColor]);
 
+  useEffect(() => {
+    if (gltfMaterialsRef.current.lace.length > 0) {
+      gltfMaterialsRef.current.lace.forEach(m => {
+        if ('color' in m) (m as THREE.MeshStandardMaterial).color.set(activeLaceColor);
+      });
+    }
+  }, [activeLaceColor]);
+
+  useEffect(() => {
+    if (gltfMaterialsRef.current.inner.length > 0) {
+      gltfMaterialsRef.current.inner.forEach(m => {
+        if ('color' in m) (m as THREE.MeshStandardMaterial).color.set(activeInnerColor);
+      });
+    }
+  }, [activeInnerColor]);
+
+  useEffect(() => {
+    if (gltfMaterialsRef.current.accent.length > 0) {
+      gltfMaterialsRef.current.accent.forEach(m => {
+        if ('color' in m) (m as THREE.MeshStandardMaterial).color.set(activeAccentColor);
+      });
+    }
+  }, [activeAccentColor]);
+
+  const renderColorPicker = (activeColorVal: string, setter: (val: string) => void, presets: typeof PRESETS) => (
+    <div className="flex flex-col items-center gap-4 w-full">
+      <div className="flex flex-wrap justify-center gap-4">
+        {presets.map((preset) => {
+          const isActive = activeColorVal === preset.value;
+          return (
+            <div key={preset.name} className="flex flex-col items-center gap-2">
+              <button
+                onClick={() => setter(preset.value)}
+                className={`w-12 h-12 rounded-full border-2 transition-all flex items-center justify-center relative shadow-sm
+                  ${isActive ? 'border-orange-500 scale-110 shadow-[0_0_15px_rgba(249,115,22,0.4)]' : 'border-white/10 hover:border-white/30 hover:scale-105'}
+                `}
+              >
+                <div 
+                  className="w-10 h-10 rounded-full border border-black/20 shadow-inner"
+                  style={{ backgroundColor: preset.value }}
+                />
+              </button>
+              <span className={`text-[10px] uppercase tracking-wider font-medium ${isActive ? 'text-orange-500' : 'text-white/50'}`}>
+                {preset.name}
+              </span>
+            </div>
+          );
+        })}
+
+        <div className="flex flex-col items-center gap-2">
+          <label className={`w-12 h-12 rounded-full border-2 transition-all flex items-center justify-center relative cursor-pointer shadow-sm
+            ${!presets.find(p => p.value === activeColorVal) ? 'border-orange-500 scale-110 shadow-[0_0_15px_rgba(249,115,22,0.4)]' : 'border-dashed border-white/20 hover:scale-105 hover:border-white/40'}
+          `}>
+            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-pink-500 via-purple-500 to-yellow-500 border border-black/20 flex items-center justify-center overflow-hidden">
+              <input
+                type="color"
+                value={activeColorVal}
+                onChange={(e) => setter(e.target.value)}
+                className="absolute blur-md w-[200%] h-[200%] opacity-0 cursor-pointer"
+              />
+            </div>
+          </label>
+          <span className={`text-[10px] uppercase tracking-wider font-medium ${!presets.find(p => p.value === activeColorVal) ? 'text-orange-500' : 'text-white/50'}`}>
+            Custom
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="relative w-full h-screen bg-[#0a0a0a] text-white flex flex-col font-sans select-none sm:overflow-hidden">
+      <button 
+        id="feature-index-changer" 
+        className="hidden" 
+        onClick={(e) => {
+           const targetId = (e.target as HTMLElement).getAttribute('data-target-id');
+           const idx = FEATURES.findIndex(f => f.id === targetId);
+           if (idx !== -1) setActiveFeatureIndex(idx);
+        }}
+      ></button>
       <input type="hidden" id="active-color-ref" value={activeColor} />
       <input type="hidden" id="active-sole-color-ref" value={activeSoleColor} />
+      <input type="hidden" id="active-lace-color-ref" value={activeLaceColor} />
+      <input type="hidden" id="active-inner-color-ref" value={activeInnerColor} />
+      <input type="hidden" id="active-accent-color-ref" value={activeAccentColor} />
       
       {/* Background Atmosphere */}
       <div className="fixed inset-0 z-0 pointer-events-none">
@@ -442,178 +629,64 @@ export default function App() {
          </div>
       )}
 
-      {/* HTML Overlay (Glassmorphism Configurator) */}
+      {/* HTML Overlay (Bottom Bar Configurator) */}
       <div 
-        className="absolute right-0 top-0 h-full w-full sm:w-[400px] bg-white/[0.03] backdrop-blur-[40px] border-l border-white/10 p-6 sm:p-8 flex flex-col z-30 pointer-events-none transition-all"
+        className="configurator-ui absolute bottom-0 left-0 w-full bg-white/5 backdrop-blur-[40px] text-white border-t border-white/10 z-30 pointer-events-auto py-8 px-4 md:px-8 transition-all flex flex-col items-center"
       >
-        <div 
-          className="pointer-events-auto h-full flex flex-col pt-24 sm:pt-4"
-          onPointerDown={(e) => e.stopPropagation()}
-          onWheel={(e) => e.stopPropagation()}
-        >
-          <div className="mb-8">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-orange-500/20 text-orange-500 rounded-lg">
-                <Settings2 className="w-4 h-4" />
-              </div>
-              <span className="text-[10px] uppercase tracking-[0.2em] text-white/40 block">Configuration Mode</span>
+        <div className="w-full max-w-4xl">
+          {/* Header Navigation */}
+          <div className="flex items-center justify-center gap-6 mb-8">
+            <button 
+              onClick={() => setActiveFeatureIndex(i => (i - 1 + FEATURES.length) % FEATURES.length)}
+              className="p-2 hover:bg-white/10 text-white/50 hover:text-white rounded-full transition-colors"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            
+            <div className="text-sm font-medium tracking-widest uppercase">
+              {FEATURES[activeFeatureIndex].title} <span className="text-orange-500 font-bold ml-2 text-xs">{activeFeatureIndex + 1}/{FEATURES.length}</span>
             </div>
-            <h2 className="text-3xl font-light mb-2">HyperGlide <span className="font-medium">X</span></h2>
-            <p className="text-sm text-white/50 leading-relaxed">Adjust material properties, model silhouette, and color mapping.</p>
+            
+            <button 
+              onClick={() => setActiveFeatureIndex(i => (i + 1) % FEATURES.length)}
+              className="p-2 hover:bg-white/10 text-white/50 hover:text-white rounded-full transition-colors"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
           </div>
 
-          <div className="flex-1 space-y-8 overflow-y-auto pr-2 pb-4 scrollbar-hide">
-            
-            {/* Silhouette Selector */}
-            <div>
-              <label className="text-[10px] uppercase tracking-widest text-white/60 flex items-center gap-2 mb-4">
-                <Layers className="w-3 h-3" /> Silhouette Base
-              </label>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Feature Content */}
+          <div className="flex justify-center min-h-[100px]">
+            {FEATURES[activeFeatureIndex].id === 'model' && (
+              <div className="flex flex-wrap justify-center gap-3">
                 {MODELS.map((model) => {
                   const isActive = activeModel === model.id;
-                  let colSpan = 'col-span-1';
-                  // Let Khronos span full width if you want, or just let it stack nicely
-                  if (MODELS.length % 2 !== 0 && model.id === 'khronos') colSpan = 'sm:col-span-2';
-
                   return (
                     <button
                       key={model.id}
                       onClick={() => setActiveModel(model.id)}
-                      className={`relative flex items-center justify-center p-4 rounded-xl border transition-all duration-300 text-center ${colSpan}
+                      className={`px-6 py-3 rounded-full border transition-all text-sm font-medium tracking-wide uppercase
                         ${isActive 
-                          ? 'bg-white/10 border-white/20 text-white shadow-[0_0_15px_rgba(255,255,255,0.05)]' 
-                          : 'bg-white/5 border-white/5 text-white/50 hover:text-white hover:bg-white/[0.08] hover:border-white/10'
+                          ? 'border-orange-500 bg-orange-500/10 text-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.2)]' 
+                          : 'border-white/10 bg-white/5 hover:border-white/30 hover:bg-white/10 text-white/70 hover:text-white'
                         }
                       `}
                     >
-                      <span className={`text-[10px] uppercase tracking-widest ${isActive ? 'font-bold' : 'font-medium'}`}>{model.name}</span>
+                      {model.name}
                     </button>
                   );
                 })}
               </div>
-            </div>
+            )}
 
-            {/* Color Presets */}
-            <div>
-              <div className="flex justify-between items-end mb-4">
-                <label className="text-[10px] uppercase tracking-widest text-white/60 flex items-center gap-2">
-                  <Palette className="w-3 h-3" /> Base Material Color
-                </label>
-                <span className="text-[10px] font-mono opacity-40">{activeColor}</span>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                {PRESETS.map((preset) => {
-                  const isActive = activeColor === preset.value;
-                  return (
-                    <button
-                      key={preset.name}
-                      onClick={() => setActiveColor(preset.value)}
-                      className={`relative flex items-center justify-between p-3 rounded-xl border transition-all duration-300 text-left
-                        ${isActive 
-                          ? 'bg-white/10 border-white/20 text-white shadow-[0_0_15px_rgba(255,255,255,0.05)]' 
-                          : 'bg-white/5 border-white/5 text-white/50 hover:text-white hover:bg-white/[0.08] hover:border-white/10'
-                        }
-                      `}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div 
-                          className="w-4 h-4 rounded-full shadow-inner border border-black/20"
-                          style={{ backgroundColor: preset.value }}
-                        />
-                        <span className="text-[10px] uppercase tracking-widest font-medium">{preset.name}</span>
-                      </div>
-                      
-                      {isActive && (
-                        <Check className="w-3 h-3 text-orange-500 shrink-0" />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
+            {FEATURES[activeFeatureIndex].id === 'baseColor' && renderColorPicker(activeColor, setActiveColor, PRESETS)}
+            {FEATURES[activeFeatureIndex].id === 'soleColor' && renderColorPicker(activeSoleColor, setActiveSoleColor, SOLE_PRESETS)}
+            {FEATURES[activeFeatureIndex].id === 'laceColor' && renderColorPicker(activeLaceColor, setActiveLaceColor, PRESETS)}
+            {FEATURES[activeFeatureIndex].id === 'innerColor' && renderColorPicker(activeInnerColor, setActiveInnerColor, PRESETS)}
+            {FEATURES[activeFeatureIndex].id === 'accentColor' && renderColorPicker(activeAccentColor, setActiveAccentColor, PRESETS)}
 
-              {/* Custom Color Picker */}
-              <label className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10 cursor-pointer hover:bg-white/[0.08] transition-colors">
-                <div className="flex items-center gap-4">
-                  <div className="relative w-8 h-8 rounded-full overflow-hidden shrink-0 shadow-inner border border-white/20">
-                    <input
-                      type="color"
-                      value={activeColor}
-                      onChange={(e) => setActiveColor(e.target.value)}
-                      className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[150%] h-[150%] cursor-pointer bg-transparent border-0 p-0 outline-none"
-                    />
-                  </div>
-                  <span className="text-xs uppercase tracking-widest text-white/80">Custom Base</span>
-                </div>
-                <span className="text-[11px] font-mono opacity-50">{activeColor.toUpperCase()}</span>
-              </label>
-            </div>
-
-            {/* Sole Color Presets */}
-            <div>
-              <div className="flex justify-between items-end mb-4">
-                <label className="text-[10px] uppercase tracking-widest text-white/60 flex items-center gap-2">
-                  <Palette className="w-3 h-3" /> Sole Material Color
-                </label>
-                <span className="text-[10px] font-mono opacity-40">{activeSoleColor}</span>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                {SOLE_PRESETS.map((preset) => {
-                  const isActive = activeSoleColor === preset.value;
-                  return (
-                    <button
-                      key={preset.name}
-                      onClick={() => setActiveSoleColor(preset.value)}
-                      className={`relative flex items-center justify-between p-3 rounded-xl border transition-all duration-300 text-left
-                        ${isActive 
-                          ? 'bg-white/10 border-white/20 text-white shadow-[0_0_15px_rgba(255,255,255,0.05)]' 
-                          : 'bg-white/5 border-white/5 text-white/50 hover:text-white hover:bg-white/[0.08] hover:border-white/10'
-                        }
-                      `}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div 
-                          className="w-4 h-4 rounded-full shadow-inner border border-black/20"
-                          style={{ backgroundColor: preset.value }}
-                        />
-                        <span className="text-[10px] uppercase tracking-widest font-medium">{preset.name}</span>
-                      </div>
-                      
-                      {isActive && (
-                        <Check className="w-3 h-3 text-orange-500 shrink-0" />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Sole Custom Color Picker */}
-              <label className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10 cursor-pointer hover:bg-white/[0.08] transition-colors">
-                <div className="flex items-center gap-4">
-                  <div className="relative w-8 h-8 rounded-full overflow-hidden shrink-0 shadow-inner border border-white/20">
-                    <input
-                      type="color"
-                      value={activeSoleColor}
-                      onChange={(e) => setActiveSoleColor(e.target.value)}
-                      className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[150%] h-[150%] cursor-pointer bg-transparent border-0 p-0 outline-none"
-                    />
-                  </div>
-                  <span className="text-xs uppercase tracking-widest text-white/80">Custom Sole</span>
-                </div>
-                <span className="text-[11px] font-mono opacity-50">{activeSoleColor.toUpperCase()}</span>
-              </label>
-            </div>
-
-            {/* Animation Picker */}
-            <div>
-              <label className="text-[10px] uppercase tracking-widest text-white/60 flex items-center gap-2 mb-3">
-                <Play className="w-3 h-3" /> Presentation Mode
-              </label>
-              
-              <div className="grid grid-cols-2 gap-3">
+            {FEATURES[activeFeatureIndex].id === 'animation' && (
+               <div className="flex flex-wrap justify-center gap-3">
                 {ANIMATIONS.map((anim) => {
                   const isActive = activeAnimation === anim.id;
                   const Icon = anim.icon;
@@ -621,33 +694,21 @@ export default function App() {
                     <button
                       key={anim.id}
                       onClick={() => setActiveAnimation(anim.id)}
-                      className={`relative flex items-center gap-2 p-3 rounded-xl border transition-all duration-300 text-left
+                      className={`px-6 py-3 rounded-xl border transition-all flex items-center gap-3 text-sm font-medium tracking-wide uppercase
                         ${isActive 
-                          ? 'bg-orange-500/10 border-orange-500/30 text-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.1)]' 
-                          : 'bg-white/5 border-white/5 text-white/50 hover:text-white hover:bg-white/[0.08] hover:border-white/10'
+                          ? 'border-orange-500 bg-orange-500/10 text-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.2)]' 
+                          : 'border-white/10 bg-white/5 hover:border-white/30 hover:bg-white/10 text-white/70 hover:text-white'
                         }
                       `}
                     >
-                      <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-orange-500' : 'opacity-70'}`} />
-                      <span className="text-[10px] uppercase tracking-widest font-medium">{anim.name}</span>
+                      <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-orange-500' : 'text-white/50'}`} />
+                      {anim.name}
                     </button>
                   );
                 })}
               </div>
-            </div>
+            )}
           </div>
-          
-          {/* Footer */}
-          <div className="mt-auto pt-6 border-t border-white/10 shrink-0">
-             <div className="flex justify-between items-center mb-6">
-                <div className="text-[10px] uppercase tracking-widest text-white/40">Est. Process</div>
-                <div className="text-sm font-light tracking-widest text-orange-500">REALTIME</div>
-             </div>
-             <p className="text-[10px] uppercase tracking-widest text-white/30 text-center leading-relaxed">
-               Click and drag background to rotate.<br/>Scroll to zoom.
-             </p>
-          </div>
-
         </div>
       </div>
     </div>
